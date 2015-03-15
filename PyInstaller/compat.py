@@ -77,10 +77,6 @@ _OLD_OPTIONS = [
     ]
 
 
-# Options for python interpreter when invoked in a subprocess.
-_PYOPTS = __debug__ and '-O' or ''
-
-
 # Python 2 does not have sys.base_prefix
 # 'base_prefix' from PEP 405 venv (new in Python 3.3)
 if is_py2:
@@ -262,9 +258,6 @@ def __wrap_python(args, kwargs):
         mapping = {'32bit': '-i386', '64bit': '-x86_64'}
         py_prefix = ['arch', mapping[architecture()]]
         cmdargs = py_prefix + cmdargs
-
-    if _PYOPTS:
-        cmdargs.append(_PYOPTS)
 
     cmdargs.extend(args)
     return cmdargs, kwargs
