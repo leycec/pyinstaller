@@ -11,6 +11,11 @@
 import os
 import sys
 
+# The following pair of imports fixes #1164 (i.e., exceptions resembling
+# "ValueError: character U+6bced1a8 is not in range [U+0000; U+10ffff]" on
+# "tkinter" importation). Order is significant! See such issue for details.
+import tempfile
+import urllib.request
 
 tcldir = os.path.join(sys._MEIPASS, 'tcl')
 tkdir = os.path.join(sys._MEIPASS, 'tk')
