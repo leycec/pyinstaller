@@ -7,6 +7,9 @@
 # The full license is in the file COPYING.txt, distributed with this software.
 
 
+#FIXME: This hook has been supplanted by substantially improved SWIG support and
+#should simply be excised.
+
 from distutils.version import LooseVersion
 from PyInstaller.utils.hooks import hookutils
 
@@ -19,6 +22,7 @@ def hook(mod):
     # has difficulty detecting. If the current SciPy is < 0.14.0,
     # unconditionally add all such libraries.
     if LooseVersion(scipy_version) < LooseVersion('0.14.0'):
-        mod.add_binary(hookutils.collect_package_binaries('scipy'))
+        pass
+        # mod.add_binary(hookutils.collect_package_binaries('scipy'))
 
     return mod
