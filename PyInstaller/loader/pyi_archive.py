@@ -237,7 +237,11 @@ class Archive(object):
         if self.os is None:
             import os
             self.os = os
-        nm = entry[0]
+
+        # If the type of this entry's name is a subclass of "str" rather than a
+        # "str" (e.g., "modulegraph.Alias" class), force this name to be of type
+        # "str", as required by subsequent marshalling.
+        nm = str(entry[0])
         pth = entry[1]
         pynm, ext = self.os.path.splitext(self.os.path.basename(pth))
         ispkg = pynm == '__init__'
@@ -252,7 +256,34 @@ class Archive(object):
         Default - toc is a dict
         Gets marshaled to self.lib
         """
-        marshal.dump(self.toc, self.lib)
+        try:
+            marshal.dump(self.toc, self.lib)
+        # If the TOC to be marshalled contains an unmarshallable object, Python
+        # raises a cryptic exception providing no details on why such object is
+        # unmarshallable. Correct this by iteratively inspecting the TOC for
+        # unmarshallable objects.
+        except ValueError as exception:
+            if str(exception) == 'unmarshallable object':
+                from types import CodeType
+
+                # List of all marshallable types.
+                MARSHALLABLE_TYPES = set((
+                    bool, int, float, complex, str, bytes, bytearray,
+                    tuple, list, set, frozenset, dict, CodeType))
+                if sys.version_info[0] == 2:
+                    MARSHALLABLE_TYPES.add(long)
+
+                for module_name, module_tuple in self.toc.items():
+                    if type(module_name) not in MARSHALLABLE_TYPES:
+                        print('Module name "%s" (%s) unmarshallable.' % (module_name, type(module_name)))
+                    if type(module_tuple) not in MARSHALLABLE_TYPES:
+                        print('Module "%s" tuple "%s" (%s) unmarshallable.' % (module_name, module_tuple, type(module_tuple)))
+                    elif type(module_tuple) == tuple:
+                        for i in range(len(module_tuple)):
+                            if type(module_tuple[i]) not in MARSHALLABLE_TYPES:
+                                print('Module "%s" tuple index %s item "%s" (%s) unmarshallable.' % (module_name, i, module_tuple[i], type(module_tuple[i])))
+
+            raise
 
     def update_headers(self, tocpos):
         """
@@ -339,7 +370,9 @@ class ZlibArchive(Archive):
         if self.os is None:
             import os
             self.os = os
-        name = entry[0]
+
+        # See Archive.add() for details.
+        name = str(entry[0])
         pth = entry[1]
         base, ext = self.os.path.splitext(self.os.path.basename(pth))
         ispkg = base == '__init__'
