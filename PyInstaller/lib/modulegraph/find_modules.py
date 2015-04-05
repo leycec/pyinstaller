@@ -335,6 +335,7 @@ def find_modules(scripts=(), includes=(), packages=(), excludes=(), path=None, d
     python_files is a list of pure python dependencies as modulegraph.Module objects,
     extensions is a list of platform-specific C extension dependencies as modulegraph.Module objects
     """
+    print('!!!!!!!!!!!!! in find_modules() !!!!!!!!!!!!!!')
     scripts = set(scripts)
     includes = set(includes)
     packages = set(packages)

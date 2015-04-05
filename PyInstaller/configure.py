@@ -101,13 +101,13 @@ def test_UPX(config, upx_dir):
 # approximately as follows:
 '''
     def node_name(node) :
-        # Get a unique module name from a graph node including the 
+        # Get a unique module name from a graph node including the
         # case of a Script node where the identifier is a full path string
         ntype = type(node).__name__
         if ntype == 'Script' :
             return os.path.basename(node.filename)
         return node.identifier
-    
+
     # Create a fresh graph initialized with pyi_importers.py
     mg = PyiModuleGraph(sys.path + ['path-to-PyInstaller/loader'])
     script_node = mg.run_script('full-path-to-pyi_importers.py'))
@@ -179,7 +179,8 @@ def find_PYZ_dependencies(config):
         ('struct', os.path.abspath(mod2.__file__), 'PYMODULE'),
         ('pyi_os_path', os.path.join(loaderpath, 'pyi_os_path.pyc'), 'PYMODULE'),
         ('pyi_archive',  os.path.join(loaderpath, 'pyi_archive.pyc'), 'PYMODULE'),
-        ('pyi_importers',  os.path.join(loaderpath, 'pyi_importers.pyc'), 'PYMODULE')
+        ('pyi_importers',  os.path.join(loaderpath, 'pyi_importers.pyc'), 'PYMODULE'),
+        ('pyi_traceback',  os.path.join(loaderpath, 'pyi_traceback.pyc'), 'PYMODULE'),
     ]
     toc = TOC(loader_mods)
     config['PYZ_dependencies'] = toc.data

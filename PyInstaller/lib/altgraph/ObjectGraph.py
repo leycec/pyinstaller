@@ -43,7 +43,6 @@ class ObjectGraph(object):
             if node is not None:
                 yield self.graph.node_data(ident)
 
-
     def get_edges(self, node):
         """
         Get a 2-tuple of all nodes directly connected to the passed node.

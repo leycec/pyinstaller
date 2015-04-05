@@ -16,6 +16,7 @@ Build packages using spec files.
 import glob
 import hashlib
 import os
+import pprint
 import shutil
 import sys
 import tempfile
@@ -306,6 +307,7 @@ class Analysis(Target):
             os.path.join(_init_code_path, 'pyi_archive.py'),
             os.path.join(_init_code_path, 'pyi_carchive.py'),
             os.path.join(_init_code_path, 'pyi_os_path.py'),
+            os.path.join(_init_code_path, 'pyi_traceback.py'),
             ]
         self.loader_path = os.path.join(HOMEPATH, 'PyInstaller', 'loader')
         #TODO: store user scripts in separate variable from init scripts,
@@ -401,6 +403,8 @@ class Analysis(Target):
         for src_root_path_or_glob, trg_root_dir in getattr(hook, 'datas', []):
             src_root_paths = glob.glob(src_root_path_or_glob)
 
+            #FIXME: This is good. Add this to the current pull request, along
+            #with the runtime TCL/TK directory check.
             if not src_root_paths:
                 raise FileNotFoundError(
                     'Path or glob "%s" not found or matches no files.' % (
@@ -494,7 +498,7 @@ class Analysis(Target):
         # Get paths to Python and, in Windows, the manifest.
         python = sys.executable
         if not is_win:
-            # Linux/MacOS: get a real, non-link path to the running Python executable.            
+            # Linux/MacOS: get a real, non-link path to the running Python executable.
             while os.path.islink(python):
                 python = os.path.join(os.path.dirname(python), os.readlink(python))
             depmanifest = None
@@ -521,25 +525,25 @@ class Analysis(Target):
         # referenced by Python's manifest, don't cause 'lib not found' messages
         self.binaries.extend(bindepend.Dependencies([('', python, '')],
                                                manifest=depmanifest)[1:])
-                
+
         # Instantiate a ModuleGraph. The class is defined at end of this module.
         # The argument is the set of paths to use for imports: sys.path,
         # plus our loader, plus other paths from e.g. --path option).
         self.graph = PyiModuleGraph(HOMEPATH, sys.path + [self.loader_path] + self.pathex)
-        
+
         # Graph the first script in the analysis, and save its node to use as
         # the "caller" node for all others. This gives a connected graph rather than
         # a collection of unrelated trees, one for each of self.inputs.
         # The list of scripts, starting with our own bootstrap ones, is in
         # self.inputs, each as a normalized pathname.
-        
+
         # TODO: (S) in __init__ the input scripts should be saved separately from the
         # pyi-loader set. TEMP: assume the first/only user script is self.inputs[5]
         script = self.inputs[5]
         logger.info("Analyzing %s", script)
         self.graph.run_script(script)
-        # list to hold graph nodes of loader scripts and runtime hooks in use order        
-        priority_scripts = [] 
+        # list to hold graph nodes of loader scripts and runtime hooks in use order
+        priority_scripts = []
         # With a caller node in hand, import all the loader set as called by it.
         # The old Analysis checked that the script existed and raised an error,
         # but now just assume that if it does not, Modulegraph will raise error.
@@ -568,7 +572,7 @@ class Analysis(Target):
         # TODO move code for handling hooks into a class or function.
         ### Handle hooks.
 
-        logger.info('Looking for import hooks ...')
+        logger.info('Looking for regular import hooks ...')
         # Implement cache of modules for which there exists a hook.
         hooks_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hooks')
         hooks_file_list = glob.glob(os.path.join(hooks_dir, 'hook-*.py'))
@@ -584,110 +588,179 @@ class Analysis(Target):
                     name = os.path.basename(f)[5:-3]
                     custom_hooks_mod_cache[name] = pth
 
-        # TODO "temp_toc" appears to be unused and have no side effects.
-        # Remove, please.
+        logger.info('Looking for umbrella import hooks ...')
+
+        # Absolute path of the directory containing umbrella import hooks.
+        umbrella_hooks_dir = os.path.join(hooks_dir, 'umbrella')
+
+        # TODO Redefine "custom_hooks_mod_cache" above in the same manner.
+        # Dictionary comprehensions are always preferable to iterative looping.
+
+        # Dictionary from package names with official umbrella import hooks to
+        # the absolute paths of such hooks.
+        umbrella_hooks_mod_cache = {
+            os.path.basename(hook_file)[5:-3]: hook_file
+            for hook_file in glob.glob(
+                os.path.join(umbrella_hooks_dir, 'hook-*.py'))
+        }
+        print('umbrella hooks: ', umbrella_hooks_mod_cache)
+
+        # Set of all package names with official umbrella import hooks.
+        umbrella_packages = umbrella_hooks_mod_cache.keys()
+        print('umbrella packages: ', umbrella_packages)
 
         # Now find regular hooks and execute them. Get a new TOC, in part
         # because graphing a runtime hook might have added some names, but
         # also because regular hooks can apply to extensions and builtins.
-        temp_toc = self.graph.make_a_TOC(['PYMODULE', 'PYSOURCE', 'BUILTIN', 'EXTENSION'])
-        module_types = set(['Module', 'SourceModule', 'CompiledModule', 'Package',
-                            'Extension', 'Script', 'BuiltinModule'])
+
+        # TODO "temp_toc" appears to be unused and have no side effects.
+        # Commenting out, for now. Should we be using this elsewhere?
+        # temp_toc = self.graph.make_a_TOC(['PYMODULE', 'PYSOURCE', 'BUILTIN', 'EXTENSION'])
+
+        # TODO Remove 'Module' below, as there exists no such class.
+        module_types = set([
+            'Module', 'SourceModule', 'CompiledModule', 'Package',
+            'Extension', 'Script', 'BuiltinModule',
+            # '_SixMetaPathImporter',
+        ])
+
+        #FIXME: Comment.
+        umbrella_package_names = []
+
+        #FIXME: Fixup comment, please.
+        # Skip modules with uninteresting types, including all missing
+        # modules that are *NOT* umbrella packages. Such packages are often
+        # externally implemented as ad-hoc objects rather than proper
+        # module objects (e.g., the fake "six.moves" package implemented as
+        # an ad-hoc list object "six._MovedItems").
+        # for curr_node in self.graph.flatten():
+        #     # if 'six' in curr_node.identifier:
+        #     #     print('current six module: {} ({})'.format(curr_node.identifier, type(curr_node).__name__))
+        #     if curr_node.identifier in umbrella_packages:
+        #         umbrella_package_names.append(curr_node.identifier)
+        # print('umbrella package names: ' + str(umbrella_package_names))
 
         # Iterate through graph.
         # We expect that method 'graph.flatten()' will pick up new imports as
         # they are added from hiddenimports. This assumption should solve issue
         # where any hiddenimport from hook need to use another hook!
         for curr_node in self.graph.flatten():
-            # Skip module types that are not interesting.
+            # Current "."-delimited module name.
+            imported_name = curr_node.identifier
+            # if 'six' in curr_node.identifier:
+            #     print('current six module: {} ({})'.format(curr_node.identifier, type(curr_node).__name__))
+
+            #FIXME: Comment.
+            if imported_name in umbrella_packages:
+                umbrella_package_names.append(curr_node.identifier)
+
+            # Skip modules with uninteresting types, including all missing
+            # modules that are *NOT* umbrella packages. Such packages are often
+            # externally implemented as ad-hoc objects rather than proper
+            # module objects (e.g., the fake "six.moves" package implemented as
+            # an ad-hoc list object "six._MovedItems").
             mg_type = type(curr_node).__name__
             if mg_type not in module_types:
                 continue
+            # if mg_type not in module_types and (
+            #    mg_type == 'MissingModule' and imported_name not in umbrella_packages):
+            #     continue
 
-            imported_name = curr_node.identifier
+            # Skip modules for which there is no hook available.
+            hook_file_name = None
             if imported_name in hooks_mod_cache:
                 # Hook is bundled with PyInstaller.
                 hook_file_name = os.path.join(hooks_dir, 'hook-' + imported_name + '.py')
             elif imported_name in custom_hooks_mod_cache:
                 # Hook is in any of custom locations.
                 hook_file_name = os.path.join(custom_hooks_mod_cache[imported_name], 'hook-' + imported_name + '.py')
-            else:
-                # Skip modules for which there is no hook available.
-                continue
 
-            # TODO This import machinery won't work on Python 2.
-            # Import module from a file.
-            import importlib.machinery
-            mod_loader = importlib.machinery.SourceFileLoader(
-                'pyi_hook.'+imported_name, hook_file_name)
+            # If such module has a regular hook, run such hook.
+            if hook_file_name is not None:
+                logger.info('Processing hook   %s', os.path.basename(hook_file_name))
+                # print('Processing hook   %s' % os.path.basename(hook_file_name))
+                self._load_hook(imported_name, hook_file_name)
 
-            logger.info('Processing hook   %s' % os.path.basename(hook_file_name))
-            # hook_name_space represents the code of 'hook-imported_name.py'
-            hook_name_space = mod_loader.load_module()
-            from_node = self.graph.findNode(imported_name)
+        #FIXME: It was a nice try, but we don't think this is the proper way to
+        #implement this. (As evidence, of course, by the fact that it doesn't
+        #work.) But even if it worked in our specific case, it wouldn't work
+        #generally -- because loading such hooks below could add new nodes to
+        #the graph that would need examination above. The only reasonable means
+        #of implementing this, therefore, is to fundamentally refactor as
+        #follows:
+        #
+        #* Define a new function get_module_names() in "hook-six.moves.py". Such
+        #  function should return a set of all fully-qualified module names
+        #  covered by such umbrella hook. Yes, this confines umbrellas to
+        #  predetermined finite lists -- but, at this point, does anyone care?
+        #* Given that, .
+        #FIXME: No, no, no. This fundamentally does not work at this level.
+        #What we need is to somehow modify the low-level graphing algorithm and
+        #data structures such that...
+        #
+        #Wait. Let's just try the "py2exe" approach, O.K.? In hindsight, we
+        #suspect that the problem here is that "six.moves" is *NOT* a module,
+        #in which case the graphing algorithms ignore additions to its
+        #namespace. This makes sense. We can correct this by doing exactly what
+        #"py2exe" does: create a regular "hook/hook-six.py" file that, on the
+        #first import of "six", creates a fake module subclass, instantiates
+        #such subclass, *AND* adds such instantiated object as a new module to
+        #the current graph in the same or similar manner that "hiddenimports"
+        #are currently added (e.g., by calling self.graph.run_script()). The
+        #fake module subclass needn't be anything interesting. Perhaps simply
+        #an empty implementation?
+        #
+        #The question then is: how do we perform the mapping? No idea. We'd
+        #rather not embed such machinery within such fake module subclass. (And
+        #let's be honest: that probably wouldn't even work for PyInstaller.)
+        #
+        #Here's what we've found so far:
+        #
+        #* In "lib/modulegraph/modulegraph.py", the __setitem__() method of the
+        #  Node class sets the "_namespace" attribute, which is what we test
+        #  down below. So, we need to find where nodes are being set like
+        #  dictionary objects.
+        #
+        #Here's what we have to do: we have to find the exact location where
+        #the "ModuleGraph" class determines whether an attribute of an imported
+        #module is itself another module. At that point, we'll need to hook into
+        #our umbrella.
+        #
+        #O.K.; so, the method we want is almost certainly the import_hook()
+        #method wrapped by the _safe_import_hook() method. However, even
+        #import_hook() probably isn't quite fine-grained enough. We need a
+        #method that import_hook() calls. Trouble us, they're poorly documented
+        #and have illegible names (e.g., load_tail()). Bah!
 
-            ### Processing hook API.
-
-            # Function hook_name_space.hook(mod) has to be called first because this function
-            # could update other attributes - datas, hiddenimports, etc.
-            # TODO use directly Modulegraph machinery in the 'def hook(mod)' function.
-            if hasattr(hook_name_space, 'hook'):
-                # Process a hook(mod) function. Create a Module object as its API.
-                # TODO: it won't be called "FakeModule" later on
-                mod = FakeModule(imported_name, self.graph)
-                mod = hook_name_space.hook(mod)
-                for item in mod._added_imports:
-                    # as with hidden imports, add to graph as called by imported_name
-                    self.graph.run_script(item, from_node)
-                for item in mod._added_binaries:
-                    assert(item[2] == 'BINARY')
-                    self.binaries.append(item)  # Supposed to be TOC form (n,p,'BINARY')
-                for item in mod.datas:
-                    assert(item[2] == 'DATA')
-                    self.datas.append(item)  # Supposed to be TOC form (n,p,'DATA')
-                for item in mod._deleted_imports:
-                    # Remove the graph link between the hooked module and item.
-                    # This removes the 'item' node from the graph if no other
-                    # links go to it (no other modules import it)
-                    self.graph.removeReference(mod.node, item)
-
-            # hook_name_space.hiddenimports is a list of Python module names that PyInstaller
-            # is not able detect.
-            if hasattr(hook_name_space, 'hiddenimports'):
-                # push hidden imports into the graph, as if imported from name
-                for item in hook_name_space.hiddenimports:
-                    try:
-                        to_node = self.graph.findNode(item)
-                        if to_node is None:
-                            self.graph.import_hook(item, from_node)
-                    except ImportError:
-                        # Print warning if a module from hiddenimport could not be found.
-                        # modulegraph raises ImporError when a module is not found.
-                        # Import hook with non-existing hiddenimport is probably a stale hook
-                        # that was not updated for a long time.
-                        logger.warn("Hidden import '%s' not found (probably old hook)" % item)
-
-            # hook_name_space.datas is a list of globs of files or
-            # directories to bundle as datafiles. For each
-            # glob, a destination directory is specified.
-            if hasattr(hook_name_space, 'datas'):
-                # Add desired data files to our datas TOC
-                self.datas.extend(self._format_hook_datas(hook_name_space))
-
-            # hook_name_space.binaries is a list of files to bundle as binaries.
-            # Binaries are special that PyInstaller will check if they
-            # might depend on other dlls (dynamic libraries).
-            if hasattr(hook_name_space, 'binaries'):
-                for bundle_name, pth in hook_name_space.binaries:
-                    self.binaries.append((bundle_name, pth, 'BINARY'))
-
-            # TODO implement attribute 'hook_name_space.attrs'
-            # hook_name_space.attrs is a list of tuples (attr_name, value) where 'attr_name'
-            # is name for Python module attribute that should be set/changed.
-            # 'value' is the value of that attribute. PyInstaller will modify
-            # mod.attr_name and set it to 'value' for the created .exe file.
-
-
+        #FIXME: Fixup comment, please.
+        # Since the set of submodules imported by umbrella modules is available
+        # only *AFTER* performing the above iteraton, this iteration is delayed
+        # until such set is completely constructed (rather than interwoven into
+        # the prior iteration).
+        # for umbrella_package_name in umbrella_package_names:
+        #     # Absolute path of the first umbrella hook applicable to such module
+        #     # if any or None otherwise (e.g., the path of
+        #     # "hooks/umbrella/hook-six.moves.py" for module
+        #     # "six.moves.tkinter").
+        #     umbrella_hook_file_name = umbrella_hooks_mod_cache.get(
+        #         umbrella_package_name)
+        #
+        #     # If such module has an umbrella hook, run such hook for all
+        #     # submodules imported by such module.
+        #     if umbrella_hook_file_name is not None:
+        #         logger.info('Processing umbrella hook   %s', os.path.basename(umbrella_hook_file_name))
+        #         # print('Current umbrella node:')
+        #         # pprint.pprint(vars(curr_node))
+        #         for umbrella_submod_name in curr_node._namespace.keys():
+        #             umbrella_mod_name = \
+        #                 umbrella_package_name + '.' + umbrella_submod_name
+        #             logger.info('Processing umbrella hook item   %s', os.path.basename(umbrella_mod_name))
+        #
+        #             # Add a new graph node for such submodule if needed.
+        #             self.graph.implyNodeReference(curr_node, umbrella_mod_name)
+        #
+        #             # Run such hook for such submodule.
+        #             self._load_hook(umbrella_mod_name, umbrella_hook_file_name)
 
         # Analyze run-time hooks.
         self.graph.analyze_runtime_hooks(priority_scripts, self.custom_runtime_hooks)
@@ -719,7 +792,7 @@ class Analysis(Target):
         ### TODO implement including Python eggs. Shoudl be the eggs printed to console as INFO msg?
         logger.info('Looking for eggs - TODO')
         # TODO: ImpTracker could flag a module as residing in a zip file (because an
-        # egg that had not yet been installed??) and the old code would do this:      
+        # egg that had not yet been installed??) and the old code would do this:
         # scripts.insert(-1, ('_pyi_egg_install.py',
         #     os.path.join(_init_code_path, '_pyi_egg_install.py'), 'PYSOURCE'))
         # It appears that Modulegraph will expand an uninstalled egg but need test
@@ -798,6 +871,86 @@ where you need to install Python library:
 """
             raise IOError(msg)
 
+    def _load_hook(self, imported_name, hook_file_name):
+        """
+        Load the the passed hook for the module with the passed name.
+
+        Specifically:
+
+        * Import the passed hook into a hook-specific namespace.
+        * If such hook defines a `hook()` method, call such method with a
+          `FakeModule` object specific to the Python module for such hook.
+        """
+        # TODO Call lib.modulegraph.modulegraph.load_module_file() instead.
+        # Import module from a file.
+        import importlib.machinery
+        mod_loader = importlib.machinery.SourceFileLoader(
+            'pyi_hook.' + imported_name, hook_file_name)
+
+        # hook_name_space represents the code of 'hook-imported_name.py'
+        hook_name_space = mod_loader.load_module()
+        from_node = self.graph.findNode(imported_name)
+
+        ### Processing hook API.
+
+        # Function hook_name_space.hook(mod) has to be called first because this function
+        # could update other attributes - datas, hiddenimports, etc.
+        # TODO use directly Modulegraph machinery in the 'def hook(mod)' function.
+        if hasattr(hook_name_space, 'hook'):
+            # Process a hook(mod) function. Create a Module object as its API.
+            # TODO: it won't be called "FakeModule" later on
+            mod = FakeModule(imported_name, self.graph)
+            mod = hook_name_space.hook(mod)
+            for item in mod._added_imports:
+                # as with hidden imports, add to graph as called by imported_name
+                self.graph.run_script(item, from_node)
+            for item in mod._added_binaries:
+                assert(item[2] == 'BINARY')
+                self.binaries.append(item)  # Supposed to be TOC form (n,p,'BINARY')
+            for item in mod.datas:
+                assert(item[2] == 'DATA')
+                self.datas.append(item)  # Supposed to be TOC form (n,p,'DATA')
+            for item in mod._deleted_imports:
+                # Remove the graph link between the hooked module and item.
+                # This removes the 'item' node from the graph if no other
+                # links go to it (no other modules import it)
+                self.graph.removeReference(mod.node, item)
+
+        # hook_name_space.hiddenimports is a list of Python module names that PyInstaller
+        # is not able detect.
+        if hasattr(hook_name_space, 'hiddenimports'):
+            # push hidden imports into the graph, as if imported from name
+            for item in hook_name_space.hiddenimports:
+                try:
+                    to_node = self.graph.findNode(item)
+                    if to_node is None:
+                        self.graph.import_hook(item, from_node)
+                except ImportError:
+                    # Print warning if a module from hiddenimport could not be found.
+                    # modulegraph raises ImporError when a module is not found.
+                    # Import hook with non-existing hiddenimport is probably a stale hook
+                    # that was not updated for a long time.
+                    logger.warn("Hidden import '%s' not found (probably old hook)" % item)
+
+        # hook_name_space.datas is a list of globs of files or
+        # directories to bundle as datafiles. For each
+        # glob, a destination directory is specified.
+        if hasattr(hook_name_space, 'datas'):
+            # Add desired data files to our datas TOC
+            self.datas.extend(self._format_hook_datas(hook_name_space))
+
+        # hook_name_space.binaries is a list of files to bundle as binaries.
+        # Binaries are special that PyInstaller will check if they
+        # might depend on other dlls (dynamic libraries).
+        if hasattr(hook_name_space, 'binaries'):
+            for bundle_name, pth in hook_name_space.binaries:
+                self.binaries.append((bundle_name, pth, 'BINARY'))
+
+        # TODO implement attribute 'hook_name_space.attrs'
+        # hook_name_space.attrs is a list of tuples (attr_name, value) where 'attr_name'
+        # is name for Python module attribute that should be set/changed.
+        # 'value' is the value of that attribute. PyInstaller will modify
+        # mod.attr_name and set it to 'value' for the created .exe file.
 
 
 class PYZ(Target):
@@ -1188,7 +1341,7 @@ class EXE(Target):
         self.resources = kwargs.get('resources', [])
         self.strip = kwargs.get('strip', False)
 
-        if config['hasUPX']: 
+        if config['hasUPX']:
            self.upx = kwargs.get('upx', False)
         else:
            self.upx = False
@@ -1197,7 +1350,7 @@ class EXE(Target):
         # app. New format includes only exename.
         #
         # Ignore fullpath in the 'name' and prepend DISTPATH or WORKPATH.
-        # DISTPATH - onefile 
+        # DISTPATH - onefile
         # WORKPATH - onedir
         if self.exclude_binaries:
             # onedir mode - create executable in WORKPATH.
@@ -1205,7 +1358,7 @@ class EXE(Target):
         else:
             # onefile mode - create executable in DISTPATH.
             self.name = os.path.join(DISTPATH, os.path.basename(self.name))
-        
+
         # Base name of the EXE file without .exe suffix.
         base_name = os.path.basename(self.name)
         if is_win or is_cygwin:
@@ -1419,7 +1572,7 @@ class COLLECT(Target):
         Target.__init__(self)
         self.strip_binaries = kws.get('strip', False)
 
-        if config['hasUPX']: 
+        if config['hasUPX']:
            self.upx_binaries = kws.get('upx', False)
         else:
            self.upx_binaries = False
@@ -1480,7 +1633,7 @@ class COLLECT(Target):
                 os.makedirs(todir)
             if typ in ('EXTENSION', 'BINARY'):
                 fnm = checkCache(fnm, strip=self.strip_binaries,
-                                 upx=(self.upx_binaries and (is_win or is_cygwin)), 
+                                 upx=(self.upx_binaries and (is_win or is_cygwin)),
                                  dist_nm=inm)
             if typ != 'DEPENDENCY':
                 shutil.copy2(fnm, tofnm)
@@ -1508,7 +1661,7 @@ class BUNDLE(Target):
         self.icon = os.path.abspath(self.icon)
 
         Target.__init__(self)
- 
+
         # .app bundle is created in DISTPATH.
         self.name = kws.get('name', None)
         base_name = os.path.basename(self.name)
@@ -1523,9 +1676,9 @@ class BUNDLE(Target):
         for arg in args:
             if isinstance(arg, EXE):
                 self.toc.append((os.path.basename(arg.name), arg.name, arg.typ))
-                self.toc.extend(arg.dependencies) 
+                self.toc.extend(arg.dependencies)
                 self.strip = arg.strip
-                self.upx = arg.upx 
+                self.upx = arg.upx
             elif isinstance(arg, TOC):
                 self.toc.extend(arg)
                 # TOC doesn't have a strip or upx attribute, so there is no way for us to
@@ -1533,7 +1686,7 @@ class BUNDLE(Target):
             elif isinstance(arg, COLLECT):
                 self.toc.extend(arg.toc)
                 self.strip = arg.strip_binaries
-                self.upx = arg.upx_binaries 
+                self.upx = arg.upx_binaries
             else:
                 logger.info("unsupported entry %s", arg.__class__.__name__)
         # Now, find values for app filepath (name), app name (appname), and name
@@ -1849,7 +2002,7 @@ def build(spec, distpath, workpath, clean_build):
     for pth in (DISTPATH, WORKPATH):
         if not os.path.exists(WORKPATH):
             os.makedirs(WORKPATH)
- 
+
     # Executing the specfile. The executed .spec file will use DISTPATH and
     # WORKPATH values.
     exec(compile(open(spec).read(), spec, 'exec'))
@@ -1882,7 +2035,7 @@ def main(pyi_config, specfile, noconfirm, ascii=False, **kw):
     # TEMP-REMOVE 2 lines
     global DEBUG # save debug flag for temp use
     DEBUG = kw['debug']
-    
+
     NOCONFIRM = noconfirm
 
     # Test unicode support.

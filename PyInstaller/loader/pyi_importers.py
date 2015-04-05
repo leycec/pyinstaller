@@ -235,6 +235,7 @@ class FrozenImporter(object):
                 is_pkg, bytecode = self._pyz_archive.extract(fullname)
                 # Create new empty 'module' object.
                 module = imp_new_module(fullname)
+                # print('Module {} extracted.'.format(fullname))
 
                 # TODO Replace bytecode.co_filename by something more meaningful:
                 # e.g. /absolute/path/frozen_executable/path/to/module/module_name.pyc
@@ -251,6 +252,7 @@ class FrozenImporter(object):
                 else:
                     module.__file__ = pyi_os_path.os_path_join(SYS_PREFIX,
                         fullname.replace('.', pyi_os_path.os_sep) + '.pyc')
+                # print('Module {} "__file__" attribute set.'.format(fullname))
 
                 ### Set __path__  if 'fullname' is a package.
                 # Python has modules and packages. A Python package is container
@@ -271,6 +273,7 @@ class FrozenImporter(object):
                     #
                     # Set __path__ to point to 'sys.prefix/package/subpackage'.
                     module.__path__ = [pyi_os_path.os_path_dirname(module.__file__)]
+                # print('Module {} "__path__" attribute set.'.format(fullname))
 
                 ### Set __loader__
                 # The attribute __loader__ improves support for module 'pkg_resources' and
@@ -301,7 +304,13 @@ class FrozenImporter(object):
                 # Run the module code.
                 exec(bytecode, module.__dict__)
 
-        except Exception:
+        except Exception as exc:
+            # print('\nFrozen module "{}" not loadable from FrozenImporter.\n'.format(fullname))
+            # print('{}: {}'.format(type(exc), str(exc)))
+            # import pyi_traceback
+            # # print('pyi_traceback: ' + str(dir(pyi_traceback)))
+            # pyi_traceback.print_exc()
+
             # Remove 'fullname' from sys.modules if it was appended there.
             if fullname in sys.modules:
                 sys.modules.pop(fullname)
@@ -474,6 +483,10 @@ class CExtensionImporter(object):
                         module = loader.load_module(fullname)
 
         except Exception:
+            # print('\nFrozen module "{}" not loadable from CExtensionImporter.\n'.format(fullname))
+            # import pyi_traceback
+            # pyi_traceback.print_exc()
+
             # Remove 'fullname' from sys.modules if it was appended there.
             if fullname in sys.modules:
                 sys.modules.pop(fullname)

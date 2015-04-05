@@ -11,6 +11,8 @@
 import os
 import sys
 
+import tempfile
+import urllib.request
 
 tcldir = os.path.join(sys._MEIPASS, 'tcl')
 tkdir = os.path.join(sys._MEIPASS, 'tk')

@@ -49,9 +49,6 @@ if sys.version_info[0] == 2:
 else:
     _READ_MODE = "r"
 
-
-
-
 # Modulegraph does a good job at simulating Python's, but it can not
 # handle packagepath modifications packages make at runtime.  Therefore there
 # is a mechanism whereby you can register extra paths in this map for a
@@ -177,6 +174,8 @@ def find_module(name, path=None):
         * `metadata` is itself a 3-tuple `(file_suffix, mode, imp_type)`.  See
           `load_module()` for details.
     """
+    if name.startswith('six'):
+        print('Finding module "{}".'.format(name))
     if path is None:
         path = sys.path
 
@@ -208,7 +207,7 @@ def find_module(name, path=None):
         if importer is None:
             continue
 
-        if sys.version_info[:2] >= (3,3) and hasattr(importer, 'find_loader'):
+        if sys.version_info[:2] >= (3,3):
             loader, portions = importer.find_loader(name)
 
         else:
@@ -217,7 +216,10 @@ def find_module(name, path=None):
 
         namespace_path.extend(portions)
 
-        if loader is None: continue
+        if loader is None:
+            if name.startswith('six'):
+                print('Module "{}" not found.'.format(name))
+            continue
 
         if isinstance(importer, ImpImporter):
             filename = loader.filename
@@ -563,7 +565,11 @@ class ModuleGraph(ObjectGraph):
     dependencies between these modules.
     """
 
-    def __init__(self, path=None, excludes=(), replace_paths=(), implies=(), graph=None, debug=0):
+    # def __init__(self, path=None, excludes=(), replace_paths=(), implies=(), graph=None, debug=4):
+    # def __init__(self, path=None, excludes=(), replace_paths=(), implies=(), graph=None, debug=3):
+    # def __init__(self, path=None, excludes=(), replace_paths=(), implies=(), graph=None, debug=2):
+    def __init__(self, path=None, excludes=(), replace_paths=(), implies=(), graph=None, debug=1):
+    # def __init__(self, path=None, excludes=(), replace_paths=(), implies=(), graph=None, debug=0):
         super(ModuleGraph, self).__init__(graph=graph, debug=debug)
         if path is None:
             path = sys.path
@@ -572,6 +578,8 @@ class ModuleGraph(ObjectGraph):
         # excludes is stronger than implies
         self.lazynodes.update(dict(implies))
         for m in excludes:
+            # self.msg(3, "exclude", m)
+            print("exclude: " + m)
             self.lazynodes[m] = None
         self.replace_paths = replace_paths
 
@@ -734,7 +742,7 @@ class ModuleGraph(ObjectGraph):
                     # Ignore circular dependencies
                     self.createReference(pkg, other, 'pkg-internal-import')
 
-            for other in iter_in:
+            for other in iter_inc:
                 if other.identifier.startswith(pkg.identifier + '.'):
                     # Ignore circular dependencies
                     continue
@@ -1101,8 +1109,22 @@ class ModuleGraph(ObjectGraph):
                 self.createReference(m, parent)
             return m
 
+        # If this is not a top-level module and this module's parent is not a
+        # package (i.e., this module's parent is itself a module)...
         if parent and parent.packagepath is None:
-            self.msgout(3, "import_module -> None")
+            # # ...and that parent module defines an attribute with the same name
+            # # as the child module to be imported...
+            # if partname in parent.globalnames:
+            #     self.msgout(3, "possible dynamic module -> ", fqname)
+            #     if parent.identifier in sys.modules:
+            #         self.msgout(3, "parent module available -> ", parent.identifier)
+            #     else:
+            #         self.msgout(3, "parent module unavailable -> ", parent.identifier)
+            #     # import pprint
+            #     # print('parent for "{}"'.format(fqname))
+            #     # pprint.pprint(vars(parent))
+
+            self.msgout(3, "import_module -> None (from non-package parent)")
             return None
 
         try:
@@ -1110,7 +1132,7 @@ class ModuleGraph(ObjectGraph):
             if parent is not None and parent.packagepath:
                 searchpath = parent.packagepath
 
-            fp, pathname, stuff = self.find_module(partname,
+            fp, pathname, module_metadata = self.find_module(partname,
                 searchpath, parent)
 
         except ImportError:
@@ -1118,7 +1140,7 @@ class ModuleGraph(ObjectGraph):
             return None
 
         try:
-            m = self.load_module(fqname, fp, pathname, stuff)
+            m = self.load_module(fqname, fp, pathname, module_metadata)
 
         finally:
             if fp is not None:
@@ -1194,6 +1216,7 @@ class ModuleGraph(ObjectGraph):
 
     def _safe_import_hook(self, name, caller, fromlist, level=-1):
         # wrapper for self.import_hook() that won't raise ImportError
+        self.msgin(3, '_safe_import_hook', name, caller, fromlist, level)
         try:
             mods = self.import_hook(name, caller, level=level)
         except ImportError as msg:
@@ -1236,6 +1259,7 @@ class ModuleGraph(ObjectGraph):
                 self.createReference(m, sm)
                 if sm not in subs:
                     subs.append(sm)
+        self.msgout(3, '_safe_import_hook ->', subs)
         return subs
 
     def scan_code(self, co, m,

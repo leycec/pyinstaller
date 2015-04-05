@@ -194,15 +194,15 @@ def qt4_menu_nib_dir():
     # Detect MacPorts prefix (usually /opt/local).
     # Suppose that PyInstaller is using python from macports.
     macports_prefix = os.path.realpath(sys.executable).split('/Library')[0]
-    
-    # list of directories where to look for qt_menu.nib    
+
+    # list of directories where to look for qt_menu.nib
     dirs = []
     # If PyQt4 is built against Qt5 look for the qt_menu.nib in a user
     # specified location, if it exists.
     if 'QT5DIR' in os.environ:
         dirs.append(os.path.join(os.environ['QT5DIR'],
                                  "src", "plugins", "platforms", "cocoa"))
-    
+
     dirs += [
         # Qt4 from MacPorts not compiled as framework.
         os.path.join(macports_prefix, 'lib', 'Resources'),
@@ -279,7 +279,7 @@ def qt5_plugins_binaries(plugin_type):
 def qt5_menu_nib_dir():
     """Return path to Qt resource dir qt_menu.nib. OSX only"""
     menu_dir = ''
-    
+
     # If the QT5DIR env var is set then look there first. It should be set to the
     # qtbase dir in the Qt5 distribution.
     dirs = []
@@ -333,11 +333,11 @@ def qt5_qml_dir():
                         + 'QT_INSTALL_QML" returned nothing')
     elif not os.path.exists(qmldir):
         logger.error("Directory QT_INSTALL_QML: %s doesn't exist" % qmldir)
-    
+
     # 'qmake -query' uses / as the path separator, even on Windows
     qmldir = os.path.normpath(qmldir)
     return qmldir
- 
+
 def qt5_qml_data(dir):
     """Return Qml library dir formatted for data"""
     qmldir = qt5_qml_dir()
@@ -360,7 +360,7 @@ def qt5_qml_plugins_binaries(dir):
         binaries.append((
             os.path.join(instdir, os.path.basename(f)),
                 f, 'BINARY'))
-    return binaries    
+    return binaries
 
 def django_dottedstring_imports(django_root_dir):
     """
@@ -416,7 +416,7 @@ def django_find_root_dir():
                 if 'settings.py' in subfiles and 'urls.py' in subfiles:
                     settings_dir = os.path.join(manage_dir, f)
                     break  # Find the first directory.
-    
+
     return settings_dir
 
 
@@ -690,7 +690,7 @@ def collect_binaries(src_root_dir, trg_root_dir):
         trg_dll = os.path.join(trg_root_dir, src_dll_relative_dir, src_dll_base)
 
         binaries.append((trg_dll, src_dll, 'BINARY'))
-        logger.debug(
-            'Dynamic library "%s" installing to "%s".', src_dll, trg_dll)
+        # logger.debug(
+        #     'Dynamic library "%s" installing to "%s".', src_dll, trg_dll)
 
     return binaries

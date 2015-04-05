@@ -298,10 +298,10 @@ class PyiModuleGraph(ModuleGraph):
             module with the passed fully-qualified name.
         """
         node = self.findNode(name)
-        if node is None : return []
+        if node is None:
+            return []
         _, iter_inc = self.get_edges(node)
         return [importer.identifier for importer in iter_inc]
-
 
     def analyze_runtime_hooks(self, priority_scripts, custom_runhooks):
         """
