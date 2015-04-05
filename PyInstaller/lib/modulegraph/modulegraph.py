@@ -144,10 +144,39 @@ def _code_to_file(co):
     return BytesIO(
             imp.get_magic() + b'\0\0\0\0' + marshal.dumps(co))
 
-
 def find_module(name, path=None):
     """
-    A version of imp.find_module that works with zipped packages.
+    Get a 3-tuple detailing the physical location of the Python module with
+    the passed name if that module is found *or* raise `ImportError` otherwise.
+
+    This low-level function is a variant on the standard `imp.find_module()`
+    function with additional support for:
+
+    * Multiple search paths. The passed list of absolute paths will be
+      iteratively searched for the first directory containing a file
+      corresponding to this module.
+    * Compressed (e.g., zipped) packages.
+
+    For efficiency, the high-level `ModuleGraph.find_module()` method wraps
+    this function with graph-based module caching.
+
+    Parameters
+    ----------
+    name : str
+        Fully-qualified name of the Python module to be found.
+    path : list
+        List of the absolute paths of all directories to search for this module
+        *or* `None` if the default path list `sys.path` is to be searched.
+
+    Returns
+    ----------
+    (file_handle, filename, metadata)
+        3-tuple detailing the physical location of this module, where:
+        * `file_handle` is an open read-only file handle from which the
+            contents of this module may be read.
+        * `filename` is the absolute path of this file.
+        * `metadata` is itself a 3-tuple `(file_suffix, mode, imp_type)`.  See
+          `load_module()` for details.
     """
     if path is None:
         path = sys.path
@@ -161,6 +190,8 @@ def find_module(name, path=None):
     # PEP302's get_code() method with all recent versions of pkgutil and/or
     # setuptools (setuptools 0.6.latest, setuptools trunk and python2.[45])
     #
+    # For python 3.4 this code should be replaced by code calling
+    # importlib.util.find_spec().
     # For python 3.3 this code should be replaced by code using importlib,
     # for python 3.2 and 2.7 this should be cleaned up a lot.
     try:
@@ -305,6 +336,8 @@ def addPackagePath(packagename, path):
     _packagePathMap[packagename] = paths
 
 _replacePackageMap = {}
+
+# TODO ReplacePackage() is no longer called anywhere and should be removed.
 
 # This ReplacePackage mechanism allows modulefinder to work around the
 # way the _xmlplus package injects itself under the name "xml" into
@@ -536,6 +569,11 @@ footer = """
 </html>"""
 
 class ModuleGraph(ObjectGraph):
+    """
+    Directed graph whose nodes represent modules and edges represent
+    dependencies between these modules.
+    """
+
     # def __init__(self, path=None, excludes=(), replace_paths=(), implies=(), graph=None, debug=4):
     def __init__(self, path=None, excludes=(), replace_paths=(), implies=(), graph=None, debug=0):
         super(ModuleGraph, self).__init__(graph=graph, debug=debug)
@@ -618,10 +656,29 @@ class ModuleGraph(ObjectGraph):
 
     def implyNodeReference(self, node, other):
         """
-        Imply that one node depends on another.
-        other may be a module name or another node.
+        Create a reference from the passed source node to the passed other node,
+        implying the former to depend upon the latter.
 
-        For use by extension modules and tricky import code
+        While the source node *must* be an existing graph node, the target node
+        may be either an existing graph node *or* a fully-qualified module name.
+        In the latter case, the module with that name and all parent packages of
+        that module will be imported *without* raising exceptions and for each
+        newly imported module or package:
+
+        * A new graph node will be created for that module or package.
+        * A reference from the passed source node to that module or package will
+          be created.
+
+        This method allows dependencies between Python objects *not* importable
+        with standard techniques (e.g., module aliases, C extensions).
+
+        Parameters
+        ----------
+        node : str
+            Graph node for this reference's source module or package.
+        other : {Node, str}
+            Either a graph node *or* fully-qualified name for this reference's
+            target module or package.
         """
         if isinstance(other, Node):
             self.createReference(node, other)
@@ -1053,6 +1110,7 @@ class ModuleGraph(ObjectGraph):
                 if info[0] != '__init__':
                     yield info[0]
 
+    # TODO Review me for use with absolute imports.
     def import_module(self, partname, fqname, parent):
         """
         Import the module with the passed unqualified and fully-qualified names
@@ -1076,7 +1134,6 @@ class ModuleGraph(ObjectGraph):
         Node
             Graph node created for the module imported by this call.
         """
-        # TODO Review me for use with absolute imports.
         self.msgin(3, "import_module", partname, fqname, parent)
         m = self.findNode(fqname)
         if m is not None:
@@ -1475,6 +1532,31 @@ class ModuleGraph(ObjectGraph):
         return m
 
     def find_module(self, name, path, parent=None):
+        """
+        Get a 3-tuple detailing the physical location of the Python module with
+        the passed name if that module is found *or* raise `ImportError`
+        otherwise.
+
+        This high-level method wraps the low-level `modulegraph.find_module()`
+        function with additional support for graph-based module caching.
+
+        Parameters
+        ----------
+        name : str
+            Fully-qualified name of the Python module to be found.
+        path : list
+            List of the absolute paths of all directories to search for this
+            module *or* `None` if the default path list `self.path` is to be
+            searched.
+        parent : Node
+            Optional parent module of this module if this module is a submodule
+            of another module *or* `None` if this module is a top-level module.
+
+        Returns
+        ----------
+        (file_handle, filename, metadata)
+            See `modulegraph.find_module()` for details.
+        """
         if parent is not None:
             # assert path is not None
             fullname = parent.identifier + '.' + name
