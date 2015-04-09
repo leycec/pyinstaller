@@ -237,7 +237,7 @@ int pyi_pylib_start_python(ARCHIVE_STATUS *status)
 
     /* In Python 3 Py_SetProgramName() should be called before Py_SetPath(). */
     // TODO Fix this wchar_t/char thing to work in Python 3 and Python 2 (Py3 requires wchar_t type)
-    mbstowcs(_program_name, status->archivename, PATH_MAX);
+    wcsncpy(_program_name, status->argv[0], PATH_MAX);
     //PI_Py_SetProgramName(status->archivename);
     PI_Py_SetProgramName(_program_name);
 
