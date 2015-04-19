@@ -13,7 +13,7 @@ import os
 import sys
 import PyInstaller
 import PyInstaller.compat as compat
-from PyInstaller.compat import is_darwin, is_win
+from PyInstaller.compat import is_darwin, is_venv, is_win
 from PyInstaller.utils import misc
 
 import PyInstaller.log as logging
@@ -194,15 +194,15 @@ def qt4_menu_nib_dir():
     # Detect MacPorts prefix (usually /opt/local).
     # Suppose that PyInstaller is using python from macports.
     macports_prefix = os.path.realpath(sys.executable).split('/Library')[0]
-    
-    # list of directories where to look for qt_menu.nib    
+
+    # list of directories where to look for qt_menu.nib
     dirs = []
     # If PyQt4 is built against Qt5 look for the qt_menu.nib in a user
     # specified location, if it exists.
     if 'QT5DIR' in os.environ:
         dirs.append(os.path.join(os.environ['QT5DIR'],
                                  "src", "plugins", "platforms", "cocoa"))
-    
+
     dirs += [
         # Qt4 from MacPorts not compiled as framework.
         os.path.join(macports_prefix, 'lib', 'Resources'),
@@ -279,7 +279,7 @@ def qt5_plugins_binaries(plugin_type):
 def qt5_menu_nib_dir():
     """Return path to Qt resource dir qt_menu.nib. OSX only"""
     menu_dir = ''
-    
+
     # If the QT5DIR env var is set then look there first. It should be set to the
     # qtbase dir in the Qt5 distribution.
     dirs = []
@@ -333,11 +333,11 @@ def qt5_qml_dir():
                         + 'QT_INSTALL_QML" returned nothing')
     elif not os.path.exists(qmldir):
         logger.error("Directory QT_INSTALL_QML: %s doesn't exist" % qmldir)
-    
+
     # 'qmake -query' uses / as the path separator, even on Windows
     qmldir = os.path.normpath(qmldir)
     return qmldir
- 
+
 def qt5_qml_data(dir):
     """Return Qml library dir formatted for data"""
     qmldir = qt5_qml_dir()
@@ -360,7 +360,7 @@ def qt5_qml_plugins_binaries(dir):
         binaries.append((
             os.path.join(instdir, os.path.basename(f)),
                 f, 'BINARY'))
-    return binaries    
+    return binaries
 
 def django_dottedstring_imports(django_root_dir):
     """
@@ -416,7 +416,7 @@ def django_find_root_dir():
                 if 'settings.py' in subfiles and 'urls.py' in subfiles:
                     settings_dir = os.path.join(manage_dir, f)
                     break  # Find the first directory.
-    
+
     return settings_dir
 
 
@@ -476,27 +476,130 @@ def remove_file_extension(filename):
     return os.path.splitext(filename)[0]
 
 
-def get_module_file_attribute(package):
+def get_module_file_attribute(module_name):
     """
-    Given a pacage name, return the value of __file__ attribute.
+    Get the absolute path of the module with the passed name.
 
-    In PyInstaller process we cannot import directly analyzed modules.
+    Since modules *cannot* be directly imported during analysis, this function
+    spawns a subprocess importing this module and returning the value of this
+    module's `__file__` attribute.
+
+    Parameters
+    ----------
+    module_name : str
+        Fully-qualified name of this module.
+
+    Returns
+    ----------
+    str
+        Absolute path of this module.
     """
-    # Statement to return __file__ attribute of a package.
-    __file__statement = """
-# Fun Python behavior: __import__('mod.submod') returns mod,
-# where as __import__('mod.submod', fromlist = [a non-empty list])
-# returns mod.submod. See the docs on `__import__
-# <http://docs.python.org/library/functions.html#__import__>`_.
-# Keyworded arguments in __import__ function are available
-# in Python 2.5+. Compatibility with Python 2.4 is preserved.
-_fromlist = ['']
-_globals = {}
-_locals = {}
-package = __import__('%s', _globals, _locals, _fromlist)
-print(package.__file__)
+    # Fun Python behavior: __import__('mod.submod') returns mod,
+    # where as __import__('mod.submod', fromlist = [a non-empty list])
+    # returns mod.submod. See the docs on __import__() at:
+    # http://docs.python.org/library/functions.html#__import__.
+    statement =  """
+module = __import__(name='%s', globals={}, locals={}, fromlist=[''])
+print(module.__file__)
 """
-    return exec_statement(__file__statement % package)
+    return exec_statement(statement % module_name)
+
+
+def get_pywin32_module_file_attribute(module_name):
+    """
+    Get the absolute path of the PyWin32 module with the passed name.
+
+    Parameters
+    ----------
+    module_name : str
+        Fully-qualified name of this module.
+
+    Returns
+    ----------
+    str
+        Absolute path of this module.
+
+    See Also
+    ----------
+    `import_pywin32_module()`
+        For further details.
+    """
+    statement = """
+from PyInstaller.utils.hooks import hookutils
+module = hookutils.import_pywin32_module('%s')
+print(module.__file__)
+    """
+    return exec_statement(statement % module_name)
+
+
+def import_pywin32_module(module_name):
+    """
+    Import the PyWin32 module with the passed name.
+
+    When imported, the `pywintypes` and `pythoncom` modules both internally
+    import dynamic libraries (e.g., `pywintypes.py` imports `pywintypes34.dll`
+    under Python 3.4). The Anaconda Python distribution for Windows installs
+    these libraries to non-standard directories, resulting in
+    `ImportError: No system module 'pywintypes' (pywintypes34.dll)` exceptions.
+    This function detects these exceptions, searches for these libraries, adds
+    their parent directories to `sys.path`, and retries.
+
+    Parameters
+    ----------
+    module_name : str
+        Fully-qualified name of this module.
+    """
+    module = None
+
+    try:
+        module = __import__(
+            name=module_name, globals={}, locals={}, fromlist=[''])
+    except ImportError as exc:
+        if str(exc).startswith('No system module'):
+            # True if "sys.frozen" is currently set.
+            is_sys_frozen = hasattr(sys, 'frozen')
+
+            # Current value of "sys.frozen" if any.
+            sys_frozen = getattr(sys, 'frozen', None)
+
+            # Force PyWin32 to search "sys.path" for DLLs. By default, PyWin32
+            # only searches "site-packages\win32\lib/", "sys.prefix", and
+            # Windows system directories (e.g., "C:\Windows\System32"). This is
+            # an ugly hack, but there is no other way.
+            sys.frozen = '|_|GLYH@CK'
+
+            # If isolated to a venv, the preferred site.getsitepackages()
+            # function is unreliable. Fallback to searching "sys.path" instead.
+            if is_venv:
+                sys_paths = sys.path
+            else:
+                import site
+                sys_paths = site.getsitepackages()
+
+            for sys_path in sys_paths:
+                # Absolute path of the directory containing PyWin32 DLLs.
+                pywin32_dll_dir = os.path.join(sys_path, 'pywin32_system32')
+                if os.path.isdir(pywin32_dll_dir):
+                    sys.path.append(pywin32_dll_dir)
+                    try:
+                        module = __import__(
+                            name=module_name, globals={}, locals={}, fromlist=[''])
+                        break
+                    except ImportError:
+                        pass
+
+            # If "sys.frozen" was previously set, restore its prior value.
+            if is_sys_frozen:
+                sys.frozen = sys_frozen
+            # Else, undo this hack entirely.
+            else:
+                del sys.frozen
+
+        # If this module remains unimportable, PyWin32 is not installed. Fail.
+        if module is None:
+            raise
+
+    return module
 
 
 def get_package_paths(package):
