@@ -589,6 +589,7 @@ class ModuleGraph(ObjectGraph):
     """
 
     # def __init__(self, path=None, excludes=(), replace_paths=(), implies=(), graph=None, debug=4):
+    # def __init__(self, path=None, excludes=(), replace_paths=(), implies=(), graph=None, debug=3):
     def __init__(self, path=None, excludes=(), replace_paths=(), implies=(), graph=None, debug=0):
         super(ModuleGraph, self).__init__(graph=graph, debug=debug)
         if path is None:

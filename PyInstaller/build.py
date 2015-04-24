@@ -604,6 +604,7 @@ class Analysis(Target):
             # Skip module types that are not interesting.
             mg_type = type(curr_node).__name__
             if mg_type not in module_types:
+                # logger.debug('Skipping boring module "{}" of type "{}".'.format(str(curr_node), str(mg_type)))
                 continue
 
             imported_name = curr_node.identifier
@@ -615,6 +616,7 @@ class Analysis(Target):
                 hook_file_name = os.path.join(custom_hooks_mod_cache[imported_name], 'hook-' + imported_name + '.py')
             else:
                 # Skip modules for which there is no hook available.
+                # logger.debug('Skipping hookless module "{}" of type "{}".'.format(str(curr_node), str(mg_type)))
                 continue
 
             # TODO This import machinery won't work on Python 2.
