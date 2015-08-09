@@ -378,7 +378,37 @@ class DependencyInfo (namedtuple("DependencyInfo", ["conditional", "function", "
 
 
 class Node(object):
+    """
+    Abstract base class (ABC) of all objects added to a `ModuleGraph`.
+
+    Attributes
+    ----------
+    order : int
+        Chronological order in which this node's corresponding module, package,
+        or extension was first imported relative to all other nodes. This
+        attribute is guaranteed to be:
+
+        * Greater than that of nodes whose corresponding module, package, or
+          extension was first imported earlier.
+        * Less than that of nodes whose corresponding module, package, or
+          extension was first imported later.
+    """
+
+    _order_next = 1
+    """
+    Value of the `order` attribute for the next `Node` to be created.
+    """
+
     def __init__(self, identifier):
+        """
+        Initialize this node.
+
+        Parameters
+        ----------
+        identifier : int
+            Fully-qualified name of this node's corresponding module, package,
+            or extension.
+        """
         self.debug = 0
         self.graphident = identifier
         self.identifier = identifier
@@ -393,6 +423,10 @@ class Node(object):
         # The set of starimports this module did that could not be
         # resolved, ie. a starimport from a non-Python module.
         self.starimports = set()
+
+        # Ensure that node order increases monotonically.
+        self.order = Node._order_next
+        Node._order_next += 1
 
     def __contains__(self, name):
         return name in self._namespace
